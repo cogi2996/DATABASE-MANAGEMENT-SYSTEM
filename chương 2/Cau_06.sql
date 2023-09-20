@@ -63,6 +63,9 @@ begin
 	ROLLBACK TRANSACTION;
 	end
 end
+go
+use COMPANY
+go
 --5
 IF OBJECT_ID ('Emp.IncreaseSalary', 'TR') IS NOT NULL 
   DROP TRIGGER Emp.IncreaseSalary; 
@@ -88,7 +91,109 @@ update Emp
 set salary = @EmpSal
 where Emp.eid = @manageId
 end
+go
 
 
 
 
+--6
+use COMPANY
+go
+DROP TRIGGER IncreaseSalary;
+go
+-- Xóa trigger có tên 'IncreaseSalary'
+IF OBJECT_ID ('Emp.IncreaseSalary', 'TR') IS NOT NULL
+  DROP TRIGGER Emp.IncreaseSalary;
+go
+
+create trigger IncreaseSalary
+on Emp
+after update
+as
+if UPDATE(salary)
+begin
+-- lấy id và salary của thằng nhân viên vừa update #salary
+	declare @id int, @EmpSal real
+	select @id = new.eid, @EmpSal = new.salary
+	from  inserted new
+-- tìm ra id manager của nó
+	declare @managerid int
+	select @managerid = Dept.managerid
+	from Dept 
+	where Dept.did = (select Works.did from Works where @id = Works.eid)
+	--Emp(eid) --> (eid)Works(did) --> (did)Dept
+-- tăng lương manager nếu có
+	if @EmpSal > (select Emp.salary from Emp where Emp.eid = @managerid )
+	begin
+	-- Update Emp tại dòng có id của manager --> update salary
+		update Emp
+		set Emp.salary = @EmpSal
+		where Emp.eid = @managerid
+	end
+-- tăng budget của dept nếu có
+-- sum Lương của nhân viên trong bộ phân
+-- did - dept
+-- eid's did
+-- @id--> (eid)Work(eid)-->(eid)Emp
+
+-- tìm ra dept của Emp
+declare @EmpDept int
+select @EmpDept = Works.did  from Works where Works.eid = @id
+
+--EmpDept--> (did)Works(eid) --> (eid)Emp
+declare @TotalSalary real
+select @TotalSalary = sum(Emp.salary)
+from Emp,Works
+where Works.did = @EmpDept and Works.eid = Emp.eid
+
+-- Dept budget update ( nếu có )
+if @TotalSalary > ( select Dept.budget from Dept where Dept.did = @EmpDept)
+begin 
+	update Dept
+	set budget = @TotalSalary
+	where Dept.did = @EmpDept
+end
+
+end
+go
+
+-- Chèn dữ liệu vào bảng Emp
+INSERT INTO Emp (eid, ename, age, salary)
+VALUES
+    (1, 'John', 30, 50000.00),
+    (2, 'Alice', 35, 60000.00),
+    (3, 'Bob', 40, 75000.00),
+    (4, 'Mary', 28, 48000.00),
+    (5, 'David', 45, 90000.00),
+    (6, 'Linda', 32, 55000.00);
+
+go
+--create view ( can update)
+create view SeniorEmpSalary (sid,salary)
+as select Emp.eid,Emp.salary
+from Emp
+where Emp.age >=35;
+go
+-- create view (un-update)
+create view TotalSeniorSalary (salary)
+as select sum(Emp.Salary) as ToTalSalary
+from Emp
+where Emp.age >=35;
+go
+
+select T.salary
+from TotalSeniorSalary T
+
+update TotalSeniorSalary
+set salary *=2
+
+
+select s.sid, s.salary
+from SeniorEmpSalary s
+go
+-- update view
+update SeniorEmpSalary
+set salary /=2;
+
+select *
+from Emp;
