@@ -1,6 +1,6 @@
-﻿create database quanlikhachsanFINAL
+﻿create database quanlikhachsanFINALENDNOW
 go
-use quanlikhachsanFINAL
+use quanlikhachsanFINALENDNOW
 go
 CREATE TABLE KhachHang(
     MaKH INT PRIMARY KEY IDENTITY(1,1),
@@ -91,10 +91,72 @@ from PhongDuocXacNhan
 order by PhongDuocXacNhan.MaHD DESC
 
 
+
+-- FUNCTION TÍNH SỐ ĐÊM KHÁCH ĐÃ Ở
+CREATE FUNCTION TinhSoDem
+(
+    @checkin_str NVARCHAR(50),
+    @checkout_str NVARCHAR(50)
+)
+RETURNS INT
+AS
+BEGIN
+    DECLARE @checkin DATETIME;
+    DECLARE @checkout DATETIME;
+    DECLARE @so_gio INT;
+    DECLARE @so_dem INT;
+    
+    SET @checkin = CONVERT(DATETIME, @checkin_str, 120);
+    SET @checkout = CONVERT(DATETIME, @checkout_str, 120);
+
+    -- Tính số giờ giữa check-in và check-out
+    SET @so_gio = DATEDIFF(HOUR, @checkin, @checkout);
+
+	-- so gio ở trong ngày check in 
+	declare @so_gio_ngay_checkin int;
+	set @so_gio_ngay_checkin = 24 -DATEPART(HOUR, @checkin);
+
+	-- số giờ ở trong ngày check out 
+	declare @so_gio_ngay_checkout int;
+	set @so_gio_ngay_checkout = DATEPART(HOUR, @checkout);
+	
+    -- Tính số đêm giữa check-in và check-out
+    SET @so_dem = ( @so_gio - @so_gio_ngay_checkin - @so_gio_ngay_checkout ) / 24;
+
+    -- Kiểm tra nếu check-in trước 22:00 và check-out sau 06:00, thêm 1 đêm
+    IF DATEPART(HOUR, @checkin) <= 22 AND DATEPART(HOUR, @checkout) >= 6
+    BEGIN
+        SET @so_dem = @so_dem + 1;
+    END
+
+    RETURN @so_dem;
+END;
+
+
+--FUNCTION TÍNH GIÁ PHÒNG
+create function TinhGiaPhong
+(
+	@TienGioDau int,
+	@TienQuaDem int,
+	@TienGioTiepTheo int,
+	@checkin DateTime
+)
+returns INT
+AS 
+BEGIN
+-- nếu khách trả phòng >=1 giờ 
+	if DATEDIFF(HOUR,@checkin,GETDATE()) >=1
+	begin
+		return @TienGioDau+(DATEDIFF(HOUR,@checkin,GETDATE())-dbo.TinhSoDem(@checkin,GETDATE())*8-1)*@TienGioTiepTheo + dbo.TinhSoDem(@checkin,GETDATE())*@TienQuaDem ;
+	end
+	return  @TienGioDau;
+END;
+
+
 -- trigger 
 
+--TRIGGER_01 - Cập nhật khi khách trả phòng
 drop trigger CapNhatSauKhiTraPhong
---TRIGGER_01 
 create trigger CapNhatSauKhiTraPhong
 on XacNhanYeuCauDatPhong 
 after delete
@@ -102,19 +164,18 @@ as
 begin
 -- lấy mã hoá đơn và mã đặt phòng từ bộ có mã hoá đơn lớn nhất ( hoá đơn hiện tại ) 
 declare @maHD int,@maDP int;
-select top 1 @maDP = old.MaDP, @maHD = PhongDuocXacNhan.MaHD
-from deleted old ,PhongDuocXacNhan
-where old.MaDP = PhongDuocXacNhan.MaDP
-order by PhongDuocXacNhan.MaHD DESC;
-print('hello wolrd');
-print(@maHD);
-print(@maDP);
+select top 1 @maDP = old.MaDP, @maHD = HoaDon.MaHD
+from deleted old ,YeuCauDatPhong, HoaDon
+where old.MaDP = YeuCauDatPhong.MaDP and YeuCauDatPhong.MaKH = HoaDon.MaKH
+order by HoaDon.MaHD DESC;
+
 --Tong Tien dich vu 
 declare @TotalService int;
-select @TotalService = sum(DichVu.DonGia)
+set @TotalService = 0;
+select @TotalService = sum(DichVu.DonGia * DanhSachSuDungDichVu.SoLuong)
 from DanhSachSuDungDichVu,DichVu
 where DanhSachSuDungDichVu.MaHD = @maHD and DanhSachSuDungDichVu.MaDV = DichVu.MaDV
-
+print(@TotalService);
 -- Tong tien phong
 	-- tạo bảng ảo #PhongDaDat chứa các phòng đã đặt của user
 create table #PhongDaDat(
@@ -126,15 +187,16 @@ create table #PhongDaDat(
 );
 	-- insert các phòng đã đặt vào #PhongDaDat
 insert into #PhongDaDat(SoPhong,TienGioDau,TienQuaDem,TienGioTiepTheo,CheckIn)
-select  Phong.SoPhong,TienGioDau,TienQuaDem,TienGioTiepTheo, CheckIn
-from XacNhanYeuCauDatPhong,Phong,BangGiaPhong
-where XacNhanYeuCauDatPhong.MaDP = @maDP and XacNhanYeuCauDatPhong.SoPhong = Phong.SoPhong and Phong.LoaiPhong = BangGiaPhong.LoaiPhong and Phong.SucChua = BangGiaPhong.SucChua;
+select  Phong.SoPhong,TienGioDau,TienQuaDem,TienGioTiepTheo, old.CheckIn
+from deleted old,Phong,BangGiaPhong
+where old.MaDP = @maDP and old.SoPhong = Phong.SoPhong and Phong.LoaiPhong = BangGiaPhong.LoaiPhong and Phong.SucChua = BangGiaPhong.SucChua;
+select * from #PhongDaDat;
 	-- Tính giá các phòng đã đặt
 DECLARE @SoPhong INT;
 DECLARE @TienGioDau INT;
 DECLARE @TienQuaDem INT;
 DECLARE @TienGioTiepTheo INT;
-DECLARE @CheckIn INT;
+DECLARE @CheckIn DateTime;
 declare @ToTalPhong int;
 set @ToTalPhong = 0;
 while exists(select top 1 * from #PhongDaDat)
@@ -142,6 +204,7 @@ begin
 	select top 1 @SoPhong = SoPhong,@TienGioDau = TienGioDau,@TienQuaDem = TienQuaDem,@TienGioTiepTheo = TienGioTiepTheo, @CheckIn = CheckIn
 	from #PhongDaDat;
 	set @ToTalPhong = @ToTalPhong +  dbo.TinhGiaPhong(@TienGioDau,@TienQuaDem,@TienGioTiepTheo,@CheckIn);
+	print(dbo.TinhGiaPhong(@TienGioDau,@TienQuaDem,@TienGioTiepTheo,@CheckIn));
 	--cap nhat tinh trang phong da tra
 	update Phong
 	set TinhTrang = N'Trống'
@@ -168,7 +231,7 @@ end
 go
 
 
--- TRIGGER 2 - UPDATE
+-- TRIGGER 2 - Cập tình trạng phòng và hoá đơn sau khi đặt phòng thành công cho khách 
 create trigger CapNhatTinhTrangPhong 
 on XacNhanYeuCauDatPhong
 after insert as
@@ -217,7 +280,9 @@ end;
 
 INSERT INTO KhachHang (TenKH, NgaySinh, CCCD, SDT, LoaiKH)
 VALUES
-    (N'Nguyễn Văn B', '1990-01-01', '123456789000', '0117654321', N'T');
+    (N'Nguyễn Văn M', '1990-01-01', '123856789000', '0119654321', N'T'),
+	(N'Nguyễn Văn N', '1990-01-01', '123416789000', '5117654321', N'T'),
+	(N'Nguyễn Văn E', '1990-01-01', '123426789000', '6117654321', N'V');
 go
 
 
@@ -238,18 +303,17 @@ go
 
 INSERT INTO YeuCauDatPhong (MaKH)
 VALUES
-    (1)
+    (3)
 go	
 
 
 INSERT INTO XacNhanYeuCauDatPhong (SoPhong, MaDP, CheckIn, CheckOut)
 VALUES
-    (101, 1, '2023-10-10 12:00:00', '2023-10-15 12:00:00'),
-	(102, 1, '2023-10-10 12:00:00', '2023-10-15 12:00:00')
+    (101, 3, '2023-10-9 12:00:00', '2023-10-10 15:00:00');
 go
 
 delete XacNhanYeuCauDatPhong 
-where MaDP = 1
+where MaDP = 5
 
 INSERT INTO DichVu (TenDV, DonGia)
 VALUES
@@ -258,80 +322,38 @@ VALUES
     (N'Dịch vụ phòng', 100000);
 go
 
+
 INSERT INTO DanhSachSuDungDichVu (MaHD, MaDV, SoLuong, ThoiDiem)
 VALUES
-    (1, 100, 2, '2023-10-15 08:30:00'),
-    (1, 102, 3, '2023-11-07 07:45:00'),
-    (1, 101, 4, '2023-12-24 20:15:00');
+    (3, 100, 1, '2023-10-15 08:30:00'),
+    (3, 102, 2, '2023-11-07 07:45:00');
+  
 
 delete from XacNhanYeuCauDatPhong
-where MaDP = 1
+where MaDP = 3
 
 
--- Tạo một hàm tính tiền dựa trên giờ check-in và check-out
-
-CREATE FUNCTION TinhSoDem
-(
-    @checkin_str NVARCHAR(50),
-    @checkout_str NVARCHAR(50)
-)
-RETURNS INT
-AS
-BEGIN
-    DECLARE @checkin DATETIME;
-    DECLARE @checkout DATETIME;
-    DECLARE @so_gio INT;
-    DECLARE @so_dem INT;
-    
-    SET @checkin = CONVERT(DATETIME, @checkin_str, 120);
-    SET @checkout = CONVERT(DATETIME, @checkout_str, 120);
-
-    -- Tính số giờ giữa check-in và check-out
-    SET @so_gio = DATEDIFF(HOUR, @checkin, @checkout);
-
-	-- so gio ở trong ngày check in 
-	declare @so_gio_ngay_checkin int;
-	set @so_gio_ngay_checkin = 24 -DATEPART(HOUR, @checkin);
-
-	-- số giờ ở trong ngày check out 
-	declare @so_gio_ngay_checkout int;
-	set @so_gio_ngay_checkout = DATEPART(HOUR, @checkout);
-	
-    -- Tính số đêm giữa check-in và check-out
-    SET @so_dem = ( @so_gio - @so_gio_ngay_checkin - @so_gio_ngay_checkout ) / 24;
-
-    -- Kiểm tra nếu check-in trước 22:00 và check-out sau 06:00, thêm 1 đêm
-    IF DATEPART(HOUR, @checkin) <= 22 AND DATEPART(HOUR, @checkout) >= 6
-    BEGIN
-        SET @so_dem = @so_dem + 1;
-    END
-
-    RETURN @so_dem;
-END;
+create table #PhongDaDat(
+	SoPhong int,
+	TienGioDau int,
+	TienQuaDem int,
+	TienGioTiepTheo int,
+	CheckIn DateTime,
+);
 
 
-
-
-
-
-
-create function TinhGiaPhong
-(
-	@TienGioDau int,
-	@TienQuaDem int,
-	@TienGioTiepTheo int,
-	@checkin DateTime
-)
-returns INT
-AS 
-BEGIN
--- nếu khách trả phòng >=1 giờ 
-	if DATEDIFF(HOUR,@checkin,GETDATE()) >=1
-	begin
-		return @TienGioDau+(DATEDIFF(HOUR,@checkin,GETDATE())-dbo.TinhSoDem(@checkin,GETDATE())*8-1)*@TienGioTiepTheo + dbo.TinhSoDem(@checkin,GETDATE())*@TienQuaDem ;
-	end
-	return  @TienGioDau;
-END;
+/*
 print(DATEDIFF(HOUR,'2023-10-9 6:00:00',GETDATE()));
 print(dbo.TinhSoDem('2023-10-9 6:00:00', GETDATE()));
-print(dbo.TinhGiaPhong(200,500,60,'2023-10-9 6:00:00'));
+print(dbo.TinhGiaPhong(100000,80000,50000,'2023-10-9 12:00:00'));
+
+declare @maHD int,@maDP int;
+select top 1 @maDP = 1, @maHD = PhongDuocXacNhan.MaHD
+from  PhongDuocXacNhan
+where 1 = PhongDuocXacNhan.MaDP
+order by PhongDuocXacNhan.MaHD DESC;
+print (@maHD)
+print(@maDP)
+
+select * from PhongDuocXacNhan
+*/
