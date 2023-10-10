@@ -88,7 +88,7 @@ go
 
 -- trigger 
 
-
+drop trigger CapNhatSauKhiTraPhong
 --TRIGGER_01 
 create trigger CapNhatSauKhiTraPhong
 on XacNhanYeuCauDatPhong
@@ -109,16 +109,19 @@ where DanhSachSuDungDichVu.MaHD = @maHD and DanhSachSuDungDichVu.MaDV = DichVu.M
 -- Tong tien phong
 	-- tạo bảng ảo #PhongDaDat chứa các phòng đã đặt của user
 create table #PhongDaDat(
+	SoPhong int,
 	TienGioDau int,
 	TienQuaDem int,
 	TienGioTiepTheo int,
 	CheckIn DateTime,
 );
 	-- insert các phòng đã đặt vào #PhongDaDat
-insert into #PhongDaDat(TienGioDau,TienQuaDem,TienGioTiepTheo,CheckIn)
-select  TienGioDau,TienQuaDem,TienGioTiepTheo, CheckIn
+insert into #PhongDaDat(SoPhong,TienGioDau,TienQuaDem,TienGioTiepTheo,CheckIn)
+select  Phong.SoPhong,TienGioDau,TienQuaDem,TienGioTiepTheo, CheckIn
 from XacNhanYeuCauDatPhong,Phong,BangGiaPhong
 where XacNhanYeuCauDatPhong.MaDP = @maDP and XacNhanYeuCauDatPhong.SoPhong = Phong.SoPhong and Phong.LoaiPhong = BangGiaPhong.LoaiPhong and Phong.SucChua = BangGiaPhong.SucChua;
+	-- Tính giá các phòng đã đặt
+DECLARE @SoPhong INT;
 DECLARE @TienGioDau INT;
 DECLARE @TienQuaDem INT;
 DECLARE @TienGioTiepTheo INT;
@@ -127,49 +130,27 @@ declare @ToTalPhong int;
 set @ToTalPhong = 0;
 while exists(select top 1 * from #PhongDaDat)
 begin
-	select top 1 @TienGioDau = TienGioDau,@TienQuaDem = TienQuaDem,@TienGioTiepTheo = TienGioTiepTheo, @CheckIn = CheckIn
+	select top 1 @SoPhong = SoPhong,@TienGioDau = TienGioDau,@TienQuaDem = TienQuaDem,@TienGioTiepTheo = TienGioTiepTheo, @CheckIn = CheckIn
 	from #PhongDaDat;
-	set @ToTalPhong = dbo.TinhGiaPhong(@TienGioDau,@TienQuaDem,@TienGioTiepTheo,@CheckIn);
+	set @ToTalPhong = @ToTalPhong +  dbo.TinhGiaPhong(@TienGioDau,@TienQuaDem,@TienGioTiepTheo,@CheckIn);
+	--cap nhat tinh trang phong da tra
+	update Phong
+	set TinhTrang = N'Trống'
+	where Phong.SoPhong = @SoPhong;
+	-- xoá phòng đã sau khi đã lấy giá 
+	delete from #PhongDaDat
+	where SoPhong = @SoPhong
 end
-
-	
-
-
-
---cap nhat tinh trang phong da tra
-
---xoa xac nhan yeu cau dat phong
-
+	-- xoá bảng tạm thời
+	drop table #PhongDaDat;
 
 --xoa yeu cau dat phong
-
+delete YeuCauDatPhong
+where YeuCauDatPhong.MaDP = @maDP;
 -- xoa danh sach su dung dich vu 
+delete DanhSachSuDungDichVu
+where DanhSachSuDungDichVu.MaHD = @maHD;
 
--- select maDP top 1 từ list phòng bị xoá trong XacNhapYeuCauDatPhong
-declare @maDP int;
-select top 1 @maDP =  new.maDP
-from inserted new;
-
-
--- select madaphong,sophong from deleted room 
-declare @maDatPhong int, @soPhong int,@maHoaDon int;
-select @maDatPhong = old.MaDP , @soPhong = old.SoPhong, @maHoaDon = HoaDon.MaHD
-from deleted old , YeuCauDatPhong, HoaDon
-where old.MaDP = YeuCauDatPhong.MaDP and HoaDon.MaKH = YeuCauDatPhong.MaKH;
-print(@maHoaDon)
--- delete yeucaudatphong from madatphong
-delete from YeuCauDatPhong
-where MaDP = @maDatPhong;
-
--- update tinhtrang from sophong
-update Phong
-set TinhTrang = N'Trống'	
-where SoPhong = @soPhong;
-
-
---delete danh sach dịch vụ
-delete from DanhSachSuDungDichVu
-where @maHoaDon = DanhSachSuDungDichVu.MaHD
 end
 go
 
@@ -235,15 +216,18 @@ VALUES
     (N'V', 3, 120000, 90000, 60000),
     (N'T', 4, 150000, 100000, 70000);
 go
+
 INSERT INTO Phong (SoPhong, LoaiPhong, SucChua, TinhTrang)
 VALUES
     (101, N'T', 2, N'Trống'),
     (102, N'T', 4, N'Trống');
 go
+
 INSERT INTO YeuCauDatPhong (MaKH)
 VALUES
     (2)
-go
+go	
+
 INSERT INTO XacNhanYeuCauDatPhong (SoPhong, MaDP, CheckIn, CheckOut)
 VALUES
     (101, 4, '2023-10-10 12:00:00', '2023-10-15 12:00:00'),
@@ -257,6 +241,7 @@ VALUES
     (N'Ăn sáng', 80000),
     (N'Dịch vụ phòng', 100000);
 go
+
 INSERT INTO DanhSachSuDungDichVu (MaHD, MaDV, SoLuong, ThoiDiem)
 VALUES
     (4, 100, 2, '2023-10-15 08:30:00'),
@@ -264,7 +249,7 @@ VALUES
     (4, 101, 4, '2023-12-24 20:15:00');
 
 delete from XacNhanYeuCauDatPhong
-where SoPhong = 101
+where MaDP = 4
 
 
 -- Tạo một hàm tính tiền dựa trên giờ check-in và check-out
