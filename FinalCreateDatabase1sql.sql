@@ -216,6 +216,10 @@ end
 	-- xoá bảng tạm thời
 	drop table #PhongDaDat;
 -- Cap nhat tong tien thanh toan
+if @TotalService is null
+	begin
+		set @TotalService = 0;
+	end
 update HoaDon 
 set TongTienThanhToan = TongTienThanhToan + @TotalService + @ToTalPhong
 where HoaDon.MaHD = @maHD;
@@ -309,11 +313,11 @@ go
 
 INSERT INTO XacNhanYeuCauDatPhong (SoPhong, MaDP, CheckIn, CheckOut)
 VALUES
-    (101, 3, '2023-10-9 12:00:00', '2023-10-10 15:00:00');
+    (101, 6, '2023-10-9 12:00:00', '2023-10-10 15:00:00');
 go
 
 delete XacNhanYeuCauDatPhong 
-where MaDP = 5
+where MaDP = 6
 
 INSERT INTO DichVu (TenDV, DonGia)
 VALUES
