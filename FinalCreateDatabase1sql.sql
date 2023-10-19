@@ -187,8 +187,8 @@ create table #PhongDaDat(
 );
 	-- insert các phòng đã đặt vào #PhongDaDat
 insert into #PhongDaDat(SoPhong,TienGioDau,TienQuaDem,TienGioTiepTheo,CheckIn)
-select  Phong.SoPhong,TienGioDau,TienQuaDem,TienGioTiepTheo, old.CheckIn
-from deleted old,Phong,BangGiaPhong
+select  Phong.SoPhong,TienGioDau,TienQuaDem,TienGioTiepTheo, YeuCauDatPhong.CheckIn
+from deleted old,Phong,BangGiaPhong,YeuCauDatPhong
 where old.MaDP = @maDP and old.SoPhong = Phong.SoPhong and Phong.LoaiPhong = BangGiaPhong.LoaiPhong and Phong.SucChua = BangGiaPhong.SucChua;
 select * from #PhongDaDat;
 	-- Tính giá các phòng đã đặt
